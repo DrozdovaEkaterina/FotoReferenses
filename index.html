@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Поза по референсу</title>
+<style>
+:root{box-sizing:border-box;--bg:#f4f1ec;--fg:#1c1a17;--panel:rgba(255,255,255,.94);--accent:#c4452d;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111;--fg:#f4f1ec;--panel:rgba(30,28,26,.94);--accent:#ff7a5c}}
+:root[data-theme="dark"]{--bg:#111;--fg:#f4f1ec;--panel:rgba(30,28,26,.94);--accent:#ff7a5c}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;display:flex;flex-direction:column}
+.stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+video,#ref{position:absolute;inset:0;width:100%;height:100%}
+video{object-fit:cover}
+#ref{object-fit:contain;opacity:.45;pointer-events:none;display:none}
+.hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:#fff;padding:24px;font-size:16px;line-height:1.4}
+.panel{background:var(--panel);padding:10px 14px;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;gap:8px;align-items:center}
+button,label.btn{flex:1;border:0;border-radius:12px;padding:11px 6px;font-size:14px;font-weight:600;background:var(--fg);color:var(--bg);text-align:center;cursor:pointer}
+button.main{background:var(--accent);color:#fff}
+button.pin{background:#e60023;color:#fff}
+button.ghost,label.ghost{background:transparent;color:var(--fg);border:1.5px solid var(--fg)}
+input[type=range]{flex:1;accent-color:var(--accent)}
+small{opacity:.7;min-width:92px}
+input[type=file]{display:none}
+.start{position:fixed;inset:0;background:var(--bg);z-index:20;display:flex;flex-direction:column;justify-content:center;gap:12px;padding:24px;padding-top:calc(24px + env(safe-area-inset-top,0px));padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+.start h1{font-size:26px;margin:0 0 4px;line-height:1.15}
+.start p{margin:0 0 8px;opacity:.75;font-size:15px;line-height:1.4}
+.start button,.start label.btn{flex:none;padding:15px 10px;font-size:16px}
+#sinfo{font-size:14px;opacity:.85;min-height:40px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;flex-direction:column;gap:10px;padding:16px;padding-top:calc(16px + env(safe-area-inset-top,0px));padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:10}
+.modal img{flex:1;min-height:0;width:100%;object-fit:contain}
+.modal .tip{color:#fff;text-align:center;font-size:13px;opacity:.8}
+</style>
+</head>
+<body>
+<div class="stage">
+  <video id="cam" autoplay playsinline muted></video>
+  <img id="ref" alt="">
+  <div class="hint" id="hint">1. Выберите референс (из галереи, из буфера или из Pinterest)<br>2. Включите камеру<br>3. Совместите позу с полупрозрачным фото</div>
+</div>
+<div class="panel">
+  <div class="row"><small>Прозрачность</small><input type="range" id="op" min="10" max="90" value="45"></div>
+  <div class="row">
+    <button class="pin" id="pin">Pinterest / Войти</button>
+    <label class="btn ghost" for="file">Из галереи</label>
+    <input type="file" id="file" accept="image/*">
+    <button class="ghost" id="paste">Из буфера</button>
+  </div>
+  <div class="row">
+    <button class="ghost" id="start">Камера</button><button class="ghost" id="flip">Фронт/Тыл</button><button class="ghost" id="mir">Зеркало</button><button class="main" id="shot">Снять</button>
+  </div>
+</div>
+<div class="start" id="startScreen">
+  <h1>Поза по референсу</h1>
+  <p>Выберите фото-референс, и камера включится сама с полупрозрачной подсказкой.</p>
+  <button class="pin" id="sPin">Войти / открыть Pinterest</button>
+  <button class="main" id="sCamera">После выбора пина — включить камеру</button>
+  <label class="btn ghost" for="file">Выбрать референс из галереи</label>
+  <div id="sinfo">Откройте Pinterest, войдите в свой аккаунт и найдите подходящий Pin. Вернитесь сюда и включите камеру. Если браузер позволяет копировать изображение из Pinterest, его можно вставить через «Из буфера».</div>
+</div>
+<div class="modal" id="modal">
+  <img id="result" alt=""><div class="tip" id="tip">Нажмите «Сохранить в Фото» и выберите «Сохранить изображение»</div>
+  <div class="row"><button class="main" id="save">Сохранить в Фото</button><button class="ghost" id="close" style="color:#fff;border-color:#fff">Закрыть</button></div>
+</div>
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var cam=$('cam'),ref=$('ref'),hint=$('hint'),modal=$('modal'),result=$('result');
+  var facing='user',stream=null,mirrored=false,shotFile=null,pinOpened=false;
+  function applyTransform(){cam.style.transform=facing==='user'?'scaleX(-1)':'none';ref.style.transform=mirrored?'scaleX(-1)':'none';}
+  function setRef(src){ref.onload=function(){ref.style.display='block';$('startScreen').style.display='none';if(!stream){startCam();}if(stream){hint.style.display='none';}else{hint.style.display='flex';hint.textContent='Референс выбран. Нажмите «Камера».';}};ref.src=src;}
+  async function startCam(){try{if(stream){stream.getTracks().forEach(function(t){t.stop();});}stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}},audio:false});cam.srcObject=stream;applyTransform();if(ref.src){hint.style.display='none';}else{hint.style.display='flex';hint.textContent='Камера включена. Теперь выберите референс.';}}catch(e){hint.style.display='flex';hint.textContent='Нет доступа к камере. Разрешите камеру для этого сайта в настройках Safari.';}}
+  $('start').onclick=startCam;$('flip').onclick=function(){facing=facing==='user'?'environment':'user';startCam();};$('mir').onclick=function(){mirrored=!mirrored;applyTransform();};$('op').oninput=function(e){ref.style.opacity=e.target.value/100;};
+  $('file').onchange=function(e){var f=e.target.files&&e.target.files[0];if(!f)return;setRef(URL.createObjectURL(f));};
+  $('paste').onclick=async function(){try{var items=await navigator.clipboard.read();for(var i=0;i<items.length;i++){var t=items[i].types.filter(function(x){return x.indexOf('image/')===0;})[0];if(t){var b=await items[i].getType(t);setRef(URL.createObjectURL(b));return;}}alert('В буфере нет картинки. В Pinterest откройте пин, удерживайте фото и нажмите «Скопировать».');}catch(e){alert('Не удалось прочитать буфер. Разрешите вставку или выберите фото из галереи.');}};
+  $('pin').onclick=function(){pinOpened=true;window.open('https://www.pinterest.com/','_blank','noopener,noreferrer');$('sinfo').textContent='Pinterest открыт. Войдите в аккаунт и найдите подходящий Pin. Затем вернитесь в приложение и нажмите «После выбора пина — включить камеру».';};
+  $('sCamera').onclick=function(){$('startScreen').style.display='none';startCam();};
+  $('shot').onclick=function(){if(!stream||!cam.videoWidth){return;}var c=document.createElement('canvas');c.width=cam.videoWidth;c.height=cam.videoHeight;var x=c.getContext('2d');if(facing==='user'){x.translate(c.width,0);x.scale(-1,1);}x.drawImage(cam,0,0);c.toBlob(function(b){shotFile=new File([b],'pose-'+Date.now()+'.jpg',{type:'image/jpeg'});result.src=URL.createObjectURL(b);modal.style.display='flex';},'image/jpeg',.95);};
+  $('save').onclick=async function(){if(!shotFile)return;try{if(navigator.canShare&&navigator.canShare({files:[shotFile]})){await navigator.share({files:[shotFile]});return;}}catch(e){if(e&&e.name==='AbortError'){return;}}$('tip').textContent='Удерживайте фото пальцем и выберите «Добавить в Фото».';};
+  $('close').onclick=function(){modal.style.display='none';};
+  $('sPin').onclick=$('pin').onclick;
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'&&pinOpened&&$('startScreen').style.display!=='none'){$('sinfo').textContent='Вернулись из Pinterest? Если хотите использовать изображение как наложение, скопируйте его и нажмите «Из буфера». Затем включите камеру.';}});
+})();
+</script>
+</body>
+</html>
